@@ -3,7 +3,17 @@
 > vite
 
 
-  VITE v5.4.20  ready in 238 ms
+  VITE v5.4.20  ready in 282 ms
 
   ➜  Local:   http://localhost:3000/
   ➜  Network: http://172.20.75.254:3000/
+11:56:41 AM [vite] warning: This assignment will throw because "idx" is a constant
+78 |        if (idx > -1) {
+79 |          const copy = [...prev]
+80 |          copy[idx = idx] // keep reference for lints
+   |               ^
+81 |          copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 }
+82 |          return copy
+
+  Plugin: vite:esbuild
+  File: /home/workspace/src/App.jsx

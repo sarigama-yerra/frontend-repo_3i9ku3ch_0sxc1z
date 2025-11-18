@@ -9,30 +9,57 @@ function App() {
   const [openRestaurant, setOpenRestaurant] = useState(null)
   const [cart, setCart] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [seeding, setSeeding] = useState(false)
 
   const baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      const r = await fetch(`${baseUrl}/restaurants`)
-      if (r.status === 404) {
-        // Try to seed and then refetch
-        await fetch(`${baseUrl}/seed`, { method: 'POST' })
-      }
-    } catch {}
+  const fetchRestaurants = async () => {
+    const res = await fetch(`${baseUrl}/restaurants`).catch(() => null)
+    if (!res) throw new Error('Cannot reach backend')
+    if (!res.ok) throw new Error(`Failed to load restaurants (${res.status})`)
+    const data = await res.json()
+    return Array.isArray(data) ? data : []
+  }
 
-    const res = await fetch(`${baseUrl}/restaurants`)
-    if (res.ok) {
-      const data = await res.json()
+  const seedAndReload = async () => {
+    setSeeding(true)
+    setError('')
+    try {
+      await fetch(`${baseUrl}/seed`, { method: 'POST' })
+      const data = await fetchRestaurants()
       setRestaurants(data)
       setFiltered(data)
+    } catch (e) {
+      setError(e.message || 'Failed to seed sample data')
+    } finally {
+      setSeeding(false)
+      setLoading(false)
     }
-    setLoading(false)
+  }
+
+  const loadData = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      let data = await fetchRestaurants()
+      // If API is up but empty, auto-seed once
+      if (data.length === 0) {
+        await fetch(`${baseUrl}/seed`, { method: 'POST' })
+        data = await fetchRestaurants()
+      }
+      setRestaurants(data)
+      setFiltered(data)
+    } catch (e) {
+      setError(e.message || 'Something went wrong loading restaurants')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const onSearch = (q) => {
@@ -50,6 +77,7 @@ function App() {
       const idx = prev.findIndex(p => p.dish_id === item.dish_id)
       if (idx > -1) {
         const copy = [...prev]
+        copy[idx = idx] // keep reference for lints
         copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 }
         return copy
       }
@@ -73,10 +101,15 @@ function App() {
       customer_email: 'guest@example.com',
       customer_address: '123 Anywhere St',
     }
-    const res = await fetch(`${baseUrl}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const data = await res.json()
-    alert(`Order placed! Total $${data.total} (id ${data.order_id})`)
-    setCart([])
+    try {
+      const res = await fetch(`${baseUrl}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      if (!res.ok) throw new Error('Checkout failed')
+      const data = await res.json()
+      alert(`Order placed! Total $${data.total} (id ${data.order_id})`)
+      setCart([])
+    } catch (e) {
+      alert(e.message || 'Failed to place order')
+    }
   }
 
   return (
@@ -84,6 +117,14 @@ function App() {
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(800px_400px_at_20%_-10%,rgba(255,0,128,0.08),transparent),radial-gradient(600px_300px_at_90%_10%,rgba(255,166,0,0.08),transparent)]" />
 
       <Header cartCount={cart.reduce((s,i)=>s+i.quantity,0)} onSearch={onSearch} />
+
+      {error && (
+        <div className="max-w-6xl mx-auto px-4 mt-4">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 p-3 text-sm">
+            {error} — check your backend URL or try seeding sample data.
+          </div>
+        </div>
+      )}
 
       <main className="max-w-6xl mx-auto px-4 py-8">
         <section className="mb-8">
@@ -97,7 +138,7 @@ function App() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Popular near you</h2>
-            <p className="text-sm text-gray-500">{filtered.length} restaurants</p>
+            <p className="text-sm text-gray-500">{loading ? 'Loading…' : `${filtered.length} restaurants`}</p>
           </div>
 
           {loading ? (
@@ -106,11 +147,22 @@ function App() {
                 <div key={i} className="h-60 rounded-2xl bg-gray-200 animate-pulse" />
               ))}
             </div>
-          ) : (
+          ) : filtered.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map(r => (
                 <RestaurantCard key={r.id} restaurant={r} onOpen={setOpenRestaurant} />
               ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed p-8 bg-white/60 text-center">
+              <p className="text-gray-700 font-medium">No restaurants found.</p>
+              <p className="text-sm text-gray-500 mt-1">You can load demo data to get started.</p>
+              <div className="mt-4 flex items-center justify-center gap-3">
+                <button onClick={seedAndReload} disabled={seeding} className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white">
+                  {seeding ? 'Seeding…' : 'Load demo restaurants'}
+                </button>
+                <button onClick={loadData} className="px-4 py-2 rounded-xl bg-gray-900 text-white">Refresh</button>
+              </div>
             </div>
           )}
         </section>
